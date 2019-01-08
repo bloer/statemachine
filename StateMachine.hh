@@ -22,35 +22,8 @@ using EventHandler = std::function<stateid_t(VState*, const Message&,
 
 
 
-struct VState{
-  StateMachine* sm;
-  time_t time_entered;
-  VState(StateMachine* fsm = nullptr) : sm(fsm), time_entered(time(0)) {}
-};
-
-template<class T> struct TState : public VState{
-  T _stateobj;
-  TState(StateMachine* sm) : VState(sm), T() {}
-};
 
 
-template<class State> struct MemFunEventHandler{
-  using Func = std::function<stateid_t(State*, const Message&)>;
-  Func func;
-  
-  stateid_t operator()(VState* st, const Message& msg){
-    return func(static_cast<State*>(st), msg);
-  }
-};
-
-template<class TState<T>> struct MemFunEventHandler{
-  using Func = std::function<stateid_t(T*, const Message&)>;
-  Func func;
-  
-  stateid_t operator()(VState* st, const Message& msg){
-    return func(&(static_cast<TState<T>*>(st)->_stateobj), msg);
-  }
-};
 
 struct VStateFactory{
   std::string name;

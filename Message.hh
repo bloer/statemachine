@@ -1,6 +1,6 @@
 #include <string>
 
-using event_t = int;
+
 
 struct Message{
   event_t event;
