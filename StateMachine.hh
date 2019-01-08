@@ -6,113 +6,125 @@
 #include <memory>
 
 #include "Message.hh"
+#include "EventHandler.hh"
+#include "State.hh"
+#include "define.hh"
 
-class StateMachine;
-struct VState;
-using stateid_t = std::type_index;
-using event_t = Message::event_t;
-
-
-
-using EventHandler = std::function<stateid_t(VState*, const Message&, 
-					     StateMachine* sm)>;
-
-
-
-
-
-
-
-
-
-struct VStateFactory{
-  std::string name;
-  std::map<event_t, EventHandler> event_handlers;
-  virtual VState* enter() = 0;
-  VStateFactory(const std::string& statename) : name(statename) {}
-  inline VState* operator()(StateMachine* sm){ return enter(sm); }
-};
-
-template<class ConcreteState> struct StateFactory : public VStateFactory{
-  VState* enter()(StateMachine* sm)
-  { return new ConcreteState(sm); }
-};
-
-
-
-class StateMachine{
-public:
-  static const event_t ERROR_DEFAULT = -1;
-  
-public:
-  using status_t = int;
-  enum STATUSCODE {
-    STATUS_OK = 0,
-    CURRENT_STATE_UNDEFINED = 1,
-    UNKNOWN_STATE_REQUESTED = 2,
+namespace fsm{
+  struct VStateFactory{
+    std::string name;
+    std::map<event_t, EventHandler> event_handlers;
+    virtual VState* enter(StateMachine* sm) = 0;
+    VStateFactory(const std::string& statename) : name(statename) {}
+    inline VState* operator()(StateMachine* sm){ return enter(sm); }
   };
 
-  //some useful utility states
-  struct AllStates{};
-  
-  ///Get the ID of a state class
-  template<class T> static stateid_t GetStateID() { return typeid(State<T>); }
-  
-  template<> static stateid_t GetStateID()<nullptr>{ return typeid(nullptr); }
-  
-  template<class T> static stateid_t GetStateID<const State<T>*>()
-  {return typeid(State<T>);}
-  template<class T> static stateid_t GetStateID<const State<T>&>()
-  {return typeid(State<T>);}
-  template<class T> static stateid_t 
-  GetStateID<const std::uniqe_ptr<State<T>>&>()  {return typeid(State<T>);}
-  
-  
+  template<class S, bool> struct StateFactory : public VStateFactory{};
+  template<class S> struct StateFactory<S,true> : public VStateFactory{
+    StateFactory(const std::string& statename) : VStateFactory(statename) {}
+
+    VState* enter(StateMachine* sm)
+    { return new S(sm); }
+  };
+
+  template<class S> struct StateFactory<S,false> : public VStateFactory{
+    StateFactory(const std::string& statename) : VStateFactory(statename) {}
+
+    VState* enter(StateMachine* sm)
+    { return new TState<S>(sm); }
+  };
+
     
-  StateMachine(){
-    RegisterState<AllStates>("AllStates");
-  }
-
-  virtual ~StateMachine(){}
-
-  status_t status;
-  std::string status_msg;
-
-  const VState* GetCurrentState() const { return _current_state.get(); }
-  stateid_t GetCurrentStateID() const { return _current_state ? 
-      GetStateID(_current_state) : GetStateID<nullptr>(); }
-  const std::string& GetCurrentStateName() //todo: constify
-  { return _currentstate ? _statefactory[GetCurrentStateID()]->name : ""; }
+  class StateMachine{
+  public:
+    static const event_t ERROR_DEFAULT = -1;
   
-  virtual status_t Handle(const Message& msg);
+  public:
+    enum STATUSCODE {
+      STATUS_OK = 0,
+      CURRENT_STATE_UNDEFINED = -1,
+      UNKNOWN_STATE_REQUESTED = -2,
+    };
+
+    //some useful utility states
+    struct AllStates{};
+    class DefaultErrorHandler : public VState{
+    public:
+      DefaultErrorHandler(StateMachine* sm);
+    };
+    
+    static const stateid_t AllStatesID;
+    static const stateid_t nullstate;
   
-  template<class T> void RegisterState(const std::string& name){
-    _statefactory[GetStateID<T>()] = 
-      std::unique_ptr<VStateFactory>(new StateFactory<T>(name));
-  }  
+    ///Constructor takes no arguments
+    StateMachine(); 
 
-  int RegisterEventHandler(event_t evt, stateid_t state,
-			   const EventHandler& handler);
+    ///Destructor does nothing
+    virtual ~StateMachine(){}
 
-  template<class State> 
-  RegisterEventHandler(event_t evt, stateid_t state,
-		       stateid_t(State::* fn)(const Message&)){
-    return RegisterEventHandler(evt,state, 
-				MemFunEventHandler<State>{std::mem_fn(fn)});
-  }
+    ///Get the current status code for the machine
+    status_t GetStatus() const { return status; }
+
+    ///Get the message relating to the current status
+    std::string GetStatusMsg() const { return status_msg; }
+
+    ///Reset any errors
+    void ResetStatus() { status = STATUS_OK; status_msg=""; }
+    
+    ///Get the current state
+    const VState* GetCurrentState() const { return _current_state.get(); }
+    
+    ///Get the ID of the current state
+    stateid_t GetCurrentStateID() const { return GetStateID(_current_state); }
+    
+    ///Get the name of the current state
+    std::string GetCurrentStateName() //todo: constify
+    { return _current_state ? _statefactory[GetCurrentStateID()]->name : ""; }
+
+    ///Get the previous state ID
+    stateid_t GetPreviousStateID() const { return _previous_state; }
+    
+    ///Get thje previous state name
+    std::string GetPreviousStateName() //todo: constify
+    { return _statefactory.count(_previous_state) ? 
+	_statefactory[_previous_state]->name : "" ; 
+    }
+  
+    ///handle an incoming message (event)
+    virtual status_t Handle(const Message& msg);
+
+    ///explicitly handle a bare event
+    status_t Handle(event_t event){ return Handle(Message(event)); }
+  
+    ///register a state to handle events
+    template<class T> void RegisterState(const std::string& name){
+      static const bool isvstate = std::is_base_of<VState, T>::value;
+      _statefactory[GetStateID<T>()] = 
+	std::unique_ptr<VStateFactory>(new StateFactory<T,isvstate>(name));
+    }  
+
+    ///register an event callback for a given state. can be mem function
+    template<class T> int RegisterEventHandler(event_t evt, stateid_t state,
+					       T handler)
+    {
+      _statefactory[state]->event_handlers[evt] = eh::MakeEventHandler(handler);
+    }
+    
 						   
-  virtual status_t Start(stateid_t initialState);
-  virtual status_t Stop(){}
+    virtual status_t Start(stateid_t initialState);
+    virtual status_t Stop(){}
   
-protected:
-  std::unique_ptr<VState> _current_state;
-  status_t ProduceError(status_t code, const std::string& message);
+  protected:
+    status_t status;
+    std::string status_msg;
+    std::unique_ptr<VState> _current_state;
+    stateid_t _previous_state;
+    status_t ProduceError(status_t code, const std::string& message);
   
-private:
-  std::map<stateid_t, std::unique_ptr<VFactory> > _statefactory;
-  stateid_t _errstate;
+    std::map<stateid_t, std::unique_ptr<VStateFactory> > _statefactory;
+      
+    virtual status_t Transition(stateid_t nextid);
   
-  virtual status_t Transition(stateid_t nextid);
-  
-};
+  };
 
+}

@@ -5,6 +5,7 @@
 #include <chrono>
 
 namespace fsm{
+  using status_t = int;
   using event_t = int;
   using stateid_t = std::type_index;
   

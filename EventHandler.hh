@@ -10,7 +10,7 @@ namespace fsm{
   
   using EventHandler = std::function<stateid_t(VState*, const Message&)>;
     
-  namespae eh{
+  namespace eh{
     ///Most generic event handling function; first arg needed for memfuncs
     
     using _RawEH     = stateid_t(*)(VState*, const Message&);
