@@ -3,10 +3,12 @@
 
 #include <typeindex>
 #include <chrono>
+#include <string>
+#include <ostream>
 
 namespace fsm{
   using status_t = int;
-  using event_t = int;
+  using event_t = std::string;
   using stateid_t = std::type_index;
   
   using mstick_t = std::chrono::milliseconds::rep;
@@ -16,5 +18,8 @@ namespace fsm{
 				       .time_since_epoch()).count();
   }
 };
+
+inline std::ostream& operator<<(std::ostream& out, const fsm::stateid_t& sid)
+{ return out<<sid.name(); }
 
 #endif

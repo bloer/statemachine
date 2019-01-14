@@ -1,6 +1,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <typeinfo>
 #include <typeindex>
 #include <memory>
@@ -13,7 +14,7 @@
 namespace fsm{
   struct VStateFactory{
     std::string name;
-    std::map<event_t, EventHandler> event_handlers;
+    std::unordered_map<event_t, EventHandler> event_handlers;
     virtual VState* enter(StateMachine* sm) = 0;
     VStateFactory(const std::string& statename) : name(statename) {}
     inline VState* operator()(StateMachine* sm){ return enter(sm); }
@@ -37,7 +38,7 @@ namespace fsm{
     
   class StateMachine{
   public:
-    static const event_t ERROR_DEFAULT = -1;
+    static const event_t ERROR_DEFAULT;
   
   public:
     enum STATUSCODE {
@@ -47,13 +48,11 @@ namespace fsm{
     };
 
     //some useful utility states
-    struct AllStates{};
     class DefaultErrorHandler : public VState{
     public:
       DefaultErrorHandler(StateMachine* sm);
     };
     
-    static const stateid_t AllStatesID;
     static const stateid_t nullstate;
   
     ///Constructor takes no arguments
@@ -72,10 +71,11 @@ namespace fsm{
     void ResetStatus() { status = STATUS_OK; status_msg=""; }
     
     ///Get the current state
-    const VState* GetCurrentState() const { return _current_state.get(); }
+    const VState* GetCurrentState() const { return _current_state; }
     
     ///Get the ID of the current state
-    stateid_t GetCurrentStateID() const { return GetStateID(_current_state); }
+    stateid_t GetCurrentStateID() const 
+    { return _current_state ? _current_state->GetID() : nullstate; }
     
     ///Get the name of the current state
     std::string GetCurrentStateName() //todo: constify
@@ -94,7 +94,7 @@ namespace fsm{
     virtual status_t Handle(const Message& msg);
 
     ///explicitly handle a bare event
-    status_t Handle(event_t event){ return Handle(Message(event)); }
+    status_t Handle(const event_t& event){ return Handle(Message(event)); }
   
     ///register a state to handle events
     template<class T> void RegisterState(const std::string& name){
@@ -104,24 +104,33 @@ namespace fsm{
     }  
 
     ///register an event callback for a given state. can be mem function
-    template<class T> int RegisterEventHandler(event_t evt, stateid_t state,
+    template<class T> int RegisterEventHandler(const event_t& evt, 
+					       const stateid_t& state,
 					       T handler)
     {
       _statefactory[state]->event_handlers[evt] = eh::MakeEventHandler(handler);
     }
+
+    ///register a global event handler, can be overridden by state-specific
+    template<class T> int RegisterGlobalEventHandler(const event_t& evt,
+						     T handler)
+    {
+      _globalhandlers[evt] = eh::MakeEventHandler(handler); 
+    }
     
 						   
-    virtual status_t Start(stateid_t initialState);
+    virtual status_t Start(const stateid_t& initialState);
     virtual status_t Stop(){}
   
   protected:
     status_t status;
     std::string status_msg;
-    std::unique_ptr<VState> _current_state;
+    VState* _current_state = nullptr;
     stateid_t _previous_state;
     status_t ProduceError(status_t code, const std::string& message);
   
     std::map<stateid_t, std::unique_ptr<VStateFactory> > _statefactory;
+    std::unordered_map<event_t, EventHandler> _globalhandlers;
       
     virtual status_t Transition(stateid_t nextid);
   

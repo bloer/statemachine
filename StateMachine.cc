@@ -1,18 +1,19 @@
 #include "StateMachine.hh"
 #include <iostream>
+#include <cassert>
 
 using namespace fsm;
 
 //static initializers
-const stateid_t StateMachine::AllStatesID=GetStateID<StateMachine::AllStates>();
 const stateid_t StateMachine::nullstate = GetStateID(nullptr);
+const event_t StateMachine::ERROR_DEFAULT = "fsm::StateMachine::ERROR_DEFAULT";
 
 //constructor
 StateMachine::StateMachine() : 
   _previous_state(GetStateID(nullptr))
 {
   ResetStatus();
-  RegisterState<AllStates>("AllStates");
+  RegisterState<DefaultErrorHandler>("DefaultErrorHandler");
 }
 
 status_t StateMachine::Handle(const Message& msg)
@@ -26,20 +27,30 @@ status_t StateMachine::Handle(const Message& msg)
   
   stateid_t currentid = _current_state->GetID();
   stateid_t nextid = currentid;
-  //see if the state has an erorr handler
-  auto& handlers = _statefactory[currentid]->event_handlers;
-  auto it = handlers.find(msg.event);
-  if(it != handlers.end()){
-    nextid = (it->second)(_current_state.get(), msg);
+  //see if the state has a response for this event
+  if(!_statefactory.count(currentid)){
+    std::cerr<<"Current state is "<<currentid<<"; known states:\n";
+    for(auto& it : _statefactory){
+      std::cerr<<it.first<<std::endl;
+    }
+    std::cerr<<"Is default err handler ? "<<dynamic_cast<DefaultErrorHandler*>(_current_state)<<std::endl;
+    abort();
+  }
+  auto* handlers = &(_statefactory[currentid]->event_handlers);
+  auto it = handlers->find(msg.event);
+  if(it == handlers->end()){
+    //see if there is a global handler registered
+    handlers = &_globalhandlers;
+    it = handlers->find(msg.event);
+  }
+  if(it != handlers->end()){
+    //we found an appropriate handler
+    nextid = (it->second)(_current_state, msg);
   }
   else{
-    //check for a global event handler
-    handlers = _statefactory[AllStatesID]->event_handlers;
-    it = handlers.find(msg.event);
-    if(it != handlers.end())
-      nextid = (it->second)(_current_state.get(), msg);
+    //TODO: optionally have error if we don't know how to handle this event
   }
-
+  
   return Transition(nextid); 
 }
 
@@ -54,17 +65,15 @@ status_t StateMachine::Transition(stateid_t nextid)
       //TODO: allow user to override
       nextid = GetStateID<DefaultErrorHandler>();
     }
-    else{
-      //make sure the current state's exit gets called first
-      _current_state.reset();
-      //now instantiate the new state
-      _current_state.reset(_statefactory[nextid]->enter(this));
-    }
+    //make sure the current state's exit gets called first
+    delete _current_state;
+    //now instantiate the new state
+    _current_state = _statefactory[nextid]->enter(this);
   }
   return status;
 }
 
-int StateMachine::Start(stateid_t initialstate)
+status_t StateMachine::Start(const stateid_t& initialstate)
 {
   return Transition(initialstate);
 }

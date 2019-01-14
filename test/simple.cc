@@ -3,11 +3,13 @@
 
 using namespace fsm;
 
-enum EVENTS {
-  POLL = 1,
-  ACTIVATE = 2,
-  DEACTIVATE = 3,
-};
+//define some events
+const event_t POLL       = "simple::POLL";
+const event_t ACTIVATE   = "simple::ACTIVATE";
+const event_t DEACTIVATE = "simple::DEACTIVATE";
+const event_t BREAK      = "simple::BREAK";
+
+struct NoState{}; //test what happens when we give unregistered
 
 struct InActive;
 
@@ -37,10 +39,13 @@ struct InActive{
   stateid_t activate(){ 
     return GetStateID<Active>();
   }
+
+  stateid_t Break(){ return GetStateID<NoState>(); }
 };
 
 int main(int argc, char** argv)
 {
+  //make sure state IDs behave as we expect
   StateMachine sm;
   sm.RegisterState<Active>("Active");
   sm.RegisterState<InActive>("InActive");
@@ -48,14 +53,26 @@ int main(int argc, char** argv)
   sm.RegisterEventHandler(POLL, GetStateID<InActive>(), &InActive::poll);
   sm.RegisterEventHandler(ACTIVATE, GetStateID<InActive>(),&InActive::activate);
   sm.RegisterEventHandler(DEACTIVATE, GetStateID<Active>(),&Active::deactivate);
+  sm.RegisterEventHandler(BREAK, GetStateID<InActive>(),&InActive::Break);
   
+  std::cout<<"simple.cc: Starting state machine..."<<std::endl;
   sm.Start(GetStateID<InActive>());
+  std::cout<<"simple.cc: Polling state machine..."<<std::endl;
   sm.Handle(POLL);
+  std::cout<<"simple.cc: Activating state machine..."<<std::endl;
   sm.Handle(ACTIVATE);
+  std::cout<<"simple.cc: Polling state machine..."<<std::endl;
   sm.Handle(POLL);
+  std::cout<<"simple.cc: Deactivating state machine..."<<std::endl;
   sm.Handle(DEACTIVATE);
+  std::cout<<"simple.cc: Polling state machine..."<<std::endl;
   sm.Handle(POLL);
-
+  std::cout<<"simple.cc: Breaking..."<<std::endl;
+  sm.Handle(BREAK);
+  std::cout<<"simple.cc: Polling state machine..."<<std::endl;
+  sm.Handle(POLL);
+  std::cout<<"simple.cc: Exiting"<<std::endl;
+  
   return 0;
   
 }
