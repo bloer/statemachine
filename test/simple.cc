@@ -69,14 +69,14 @@ int main(int argc, char** argv)
   StateMachine sm;
   sm.RegisterState<Active>("Active");
   sm.RegisterState<InActive>("InActive");
-  sm.RegisterEventHandler(POLL, GetStateID<Active>(), &Active::poll);
-  sm.RegisterEventHandler(POLL, GetStateID<InActive>(), &InActive::poll);
-  sm.RegisterEventHandler(ACTIVATE, GetStateID<InActive>(),&InActive::activate);
-  sm.RegisterEventHandler(DEACTIVATE, GetStateID<Active>(),&Active::deactivate);
-  sm.RegisterEventHandler(BREAK, GetStateID<InActive>(),&InActive::Break);
-  sm.RegisterEventHandler(STOREMSG, GetStateID<Active>(), &Active::storemsg);
-  sm.RegisterEventHandler(STOREMSG, GetStateID<InActive>(),&InActive::storemsg);
-  sm.RegisterGlobalEventHandler(PRINTMSG, printmsg);
+  sm.RegisterEventHandler(POLL, &Active::poll, GetStateID<Active>());
+  sm.RegisterEventHandler(POLL, &InActive::poll, GetStateID<InActive>());
+  sm.RegisterEventHandler(ACTIVATE, &InActive::activate, GetStateID<InActive>());
+  sm.RegisterEventHandler(DEACTIVATE, &Active::deactivate, GetStateID<Active>());
+  sm.RegisterEventHandler(BREAK, &InActive::Break, GetStateID<InActive>());
+  sm.RegisterEventHandler(STOREMSG, &Active::storemsg, GetStateID<Active>());
+  sm.RegisterEventHandler(STOREMSG, &InActive::storemsg, GetStateID<InActive>());
+  sm.RegisterEventHandler(PRINTMSG, printmsg);
   
   std::cout<<"simple.cc: Starting state machine..."<<std::endl;
   sm.Start(GetStateID<InActive>());
@@ -86,13 +86,13 @@ int main(int argc, char** argv)
   sm.Handle(ACTIVATE);
   std::cout<<"simple.cc: Polling state machine..."<<std::endl;
   sm.Handle(POLL);
-  std::cout<<"Storing message..."<<std::endl;
+  std::cout<<"simple.cc: Storing message..."<<std::endl;
   sm.Handle(STOREMSG);
   std::cout<<"simple.cc: Deactivating state machine..."<<std::endl;
   sm.Handle(DEACTIVATE);
   std::cout<<"simple.cc: Polling state machine..."<<std::endl;
   sm.Handle(POLL);
-  std::cout<<"Printing stored message..."<<std::endl;
+  std::cout<<"simple.cc: Printing stored message..."<<std::endl;
   sm.Handle(PRINTMSG);
   
   std::cout<<"simple.cc: Breaking..."<<std::endl;

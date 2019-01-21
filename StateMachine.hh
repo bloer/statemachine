@@ -81,21 +81,16 @@ namespace fsm{
 
     ///register an event callback for a given state. can be mem function
     template<class T> int RegisterEventHandler(const event_t& evt, 
-					       const stateid_t& state,
-					       T handler)
+					       T handler,
+					       const stateid_t& state=nullstate)
     {
-      _statefactory[state]->event_handlers[evt] = eh::MakeEventHandler(handler);
+      if(state == nullstate)
+	_globalhandlers[evt] = eh::MakeEventHandler(handler);
+      else
+	_statefactory[state]->event_handlers[evt]=eh::MakeEventHandler(handler);
       return 0;
     }
 
-    ///register a global event handler, can be overridden by state-specific
-    template<class T> int RegisterGlobalEventHandler(const event_t& evt,
-						     T handler)
-    {
-      _globalhandlers[evt] = eh::MakeEventHandler(handler); 
-      return 0;
-    }
-    
     ///Remove a previously registered event handler
     int RemoveEventHandler(const event_t& evt, const stateid_t& st=nullstate);
 						   
