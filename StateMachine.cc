@@ -85,6 +85,24 @@ status_t StateMachine::ProduceError(status_t code, const std::string& msg)
   return status;
 }
 
+int StateMachine::RemoveEventHandler(const event_t& evt, const stateid_t& st)
+{
+  bool found = false;
+  if(st == nullstate)
+    found = _globalhandlers.erase(evt);
+  else{
+    auto& factory = _statefactory.find(st);
+    if(factory != _statefactory.end())
+      found = (factory->second)->event_handlers.erase(evt);
+  }
+  if(!found){
+    std::cerr<<"Error in RemoveEventHandler; no handler registered for \n"
+	     <<"event "<<evt<<" and state "<<st<<std::endl;
+    return 1;
+  }
+  return 0;
+}
+
 StateMachine::DefaultErrorHandler::DefaultErrorHandler(StateMachine* sm) : 
   VState(sm)
 {

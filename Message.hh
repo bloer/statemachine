@@ -24,6 +24,12 @@ namespace fsm{
 	_data = nullptr;
       }
     }
+
+    ///special constructor to copy a string
+    Message(const event_t& evt, const std::string& msg) : 
+      event(evt), _datasize(msg.size()+1), _owned_data(msg.size()+1){
+      std::copy(msg.begin(), msg.end(), _owned_data.begin());
+    }
     
     ///event type identifier
     event_t event;
