@@ -5,7 +5,7 @@
 using namespace fsm;
 
 //static initializers
-const stateid_t StateMachine::nullstate = GetStateID(nullptr);
+const stateid_t nullstate = GetStateID(nullptr); //this *should* be in State.cc
 const event_t StateMachine::ERROR_DEFAULT = "fsm::StateMachine::ERROR_DEFAULT";
 
 //constructor
@@ -14,6 +14,10 @@ StateMachine::StateMachine() :
 {
   ResetStatus();
   RegisterState<DefaultErrorHandler>("DefaultErrorHandler");
+}
+
+StateMachine::~StateMachine()
+{
 }
 
 status_t StateMachine::Handle(const Message& msg)
@@ -91,7 +95,7 @@ int StateMachine::RemoveEventHandler(const event_t& evt, const stateid_t& st)
   if(st == nullstate)
     found = _globalhandlers.erase(evt);
   else{
-    auto& factory = _statefactory.find(st);
+    auto factory = _statefactory.find(st);
     if(factory != _statefactory.end())
       found = (factory->second)->event_handlers.erase(evt);
   }

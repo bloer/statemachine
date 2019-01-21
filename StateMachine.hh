@@ -9,33 +9,11 @@
 #include "Message.hh"
 #include "EventHandler.hh"
 #include "State.hh"
+#include "StateFactory.hh"
 #include "define.hh"
 
 namespace fsm{
-  struct VStateFactory{
-    std::string name;
-    std::unordered_map<event_t, EventHandler> event_handlers;
-    virtual VState* enter(StateMachine* sm) = 0;
-    VStateFactory(const std::string& statename) : name(statename) {}
-    inline VState* operator()(StateMachine* sm){ return enter(sm); }
-  };
-
-  template<class S, bool> struct StateFactory : public VStateFactory{};
-  template<class S> struct StateFactory<S,true> : public VStateFactory{
-    StateFactory(const std::string& statename) : VStateFactory(statename) {}
-
-    VState* enter(StateMachine* sm)
-    { return new S(sm); }
-  };
-
-  template<class S> struct StateFactory<S,false> : public VStateFactory{
-    StateFactory(const std::string& statename) : VStateFactory(statename) {}
-
-    VState* enter(StateMachine* sm)
-    { return new TState<S>(sm); }
-  };
-
-    
+  
   class StateMachine{
   public:
     static const event_t ERROR_DEFAULT;
@@ -53,13 +31,11 @@ namespace fsm{
       DefaultErrorHandler(StateMachine* sm);
     };
     
-    static const stateid_t nullstate;
-  
     ///Constructor takes no arguments
     StateMachine(); 
 
-    ///Destructor does nothing
-    virtual ~StateMachine(){}
+    ///Destructor
+    virtual ~StateMachine();
 
     ///Get the current status code for the machine
     status_t GetStatus() const { return status; }
@@ -128,6 +104,25 @@ namespace fsm{
 
     ///stop running (no-op for base class)
     virtual status_t Stop(){}
+
+    using objkey_t = std::string;
+    
+    ///Store an object shared_ptr with longer-than-state duration
+    template<class T> void RegisterObject(const objkey_t& key, 
+					  const std::shared_ptr<T>& obj);
+    
+    ///Store an object raw pointer with longer-than-state duration
+    template<class T> void RegisterObject(const objkey_t& key, 
+					  T* obj);
+    
+    ///Retrieve a previously registered object; statically unless typecheck=true
+    template<class T> 
+    const std::shared_ptr<T>& GetObject(const objkey_t& key, 
+					bool typecheck=false) const;
+
+    ///Remove reference to a previously registered object
+    template<class T> void RemoveObject(const objkey_t& key);
+    
   
   protected:
     status_t status;
@@ -140,7 +135,52 @@ namespace fsm{
     std::unordered_map<event_t, EventHandler> _globalhandlers;
       
     virtual status_t Transition(stateid_t nextid);
-  
+
+    struct VObjectHolder { virtual ~VObjectHolder(){} };
+    template<class T> struct TObjectHolder : public VObjectHolder {
+      std::shared_ptr<T> ptr;
+      TObjectHolder(std::shared_ptr<T> ob) : ptr(ob) {}
+      TObjectHolder(T* t=nullptr) : ptr(t) {}
+    };
+    
+    using objptr = std::unique_ptr<VObjectHolder>;
+    using objmap = std::unordered_map<objkey_t, objptr>;
+    objmap _stored_objects;
+    
   };
 
+}
+
+template<class T> inline 
+void fsm::StateMachine::RegisterObject(const fsm::StateMachine::objkey_t& key,
+				       const std::shared_ptr<T>& obj)
+{
+  _stored_objects[key] = objptr(new TObjectHolder<T>(obj));
+}
+				      
+template<class T> inline 
+void fsm::StateMachine::RegisterObject(const fsm::StateMachine::objkey_t& key,
+				       T* obj)
+{
+  _stored_objects[key] = objptr(new TObjectHolder<T>(obj));
+}
+				      
+template<class T> inline const std::shared_ptr<T>& 
+fsm::StateMachine::GetObject(const fsm::StateMachine::objkey_t& key, 
+			     bool typecheck) const
+{
+  auto it = _stored_objects.find(key);
+  if(it == _stored_objects.end()) //couldn't find it
+    return nullptr;
+  if(typecheck && dynamic_cast<TObjectHolder<T>*>(it->second.get()) == nullptr){
+    //object is the wrong type
+    return nullptr;
+  }
+  return static_cast<TObjectHolder<T>*>(it->second.get())->ptr;
+}
+
+template<class T> inline 
+void fsm::StateMachine::RemoveObject(const fsm::StateMachine::objkey_t& key)
+{
+  _stored_objects.erase(key);
 }

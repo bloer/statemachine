@@ -25,6 +25,8 @@ namespace fsm{
   template<class T> inline stateid_t GetStateID(T* t)
   { return t ? typeid(*t) : typeid(std::nullptr_t); }
   
+  static const stateid_t nullstate = GetStateID<std::nullptr_t>();
+  
   //forward declaration
   class StateMachine;
   
