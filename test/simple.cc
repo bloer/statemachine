@@ -29,7 +29,7 @@ struct Active{
 
   void storemsg(VState* st){
     st->GetStateMachine()->
-      RegisterObject("message", new std::string("This is the active message"));
+      RegisterObject("message", "This is the active message");
   }
     
 };
@@ -48,7 +48,7 @@ struct InActive{
   
   void storemsg(VState* st){
     st->GetStateMachine()->
-      RegisterObject("message",new std::string("This is the inactive message"));
+      RegisterObject("message","This is the inactive message");
   }
   
   stateid_t Break(){ return GetStateID<NoState>(); }
@@ -59,7 +59,7 @@ void printmsg(VState* st)
   StateMachine* sm = st->GetStateMachine();
   //this version does not do any typechecking!
   std::cout<<"State is: "<<sm->GetCurrentStateName()<<": "
-	   <<"Message is: "<< *sm->GetObject<std::string>("message") 
+	   <<"Message is: "<< sm->GetObject<std::string>("message") 
 	   <<std::endl;
 }
 

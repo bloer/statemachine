@@ -5,6 +5,8 @@
 #include <typeinfo>
 #include <typeindex>
 #include <memory>
+#include <stdexcept>
+#include <sstream>
 
 #include "Message.hh"
 #include "EventHandler.hh"
@@ -144,18 +146,22 @@ namespace fsm{
 
     using objkey_t = std::string;
     
-    ///Store an object shared_ptr with longer-than-state duration
+    ///Store an object with longer-than-state duration
     template<class T> void RegisterObject(const objkey_t& key, 
-					  const std::shared_ptr<T>& obj);
-    
-    ///Store an object raw pointer with longer-than-state duration
-    template<class T> void RegisterObject(const objkey_t& key, 
-					  T* obj);
+					  const T& obj);
+
+    ///Store an object, move semantics
+    template<class T> void RegisterObject(const objkey_t& key,
+					  T&& obj);
+
+    ///Special override to treat const char* as std::string
+    void RegisterObject(const objkey_t& key, const char* obj)
+    { RegisterObject(key, std::string(obj)); }
     
     ///Retrieve a previously registered object; statically unless typecheck=true
-    template<class T> 
-    const std::shared_ptr<T>& GetObject(const objkey_t& key, 
-					bool typecheck=false) const;
+    template<class T> T& GetObject(const objkey_t& key, bool typecheck=false);
+    template<class T> const T& GetObject(const objkey_t& key, 
+					 bool typecheck=false) const;
 
     ///Remove reference to a previously registered object
     template<class T> void RemoveObject(const objkey_t& key);
@@ -177,9 +183,9 @@ namespace fsm{
 
     struct VObjectHolder { virtual ~VObjectHolder(){} };
     template<class T> struct TObjectHolder : public VObjectHolder {
-      std::shared_ptr<T> ptr;
-      TObjectHolder(std::shared_ptr<T> ob) : ptr(ob) {}
-      TObjectHolder(T* t=nullptr) : ptr(t) {}
+      T obj;
+      TObjectHolder(const T& t) : obj(t) {}
+      TObjectHolder(T&& t) : obj(t) {} //move constructor
     };
     
     using objptr = std::unique_ptr<VObjectHolder>;
@@ -192,30 +198,45 @@ namespace fsm{
 
 template<class T> inline 
 void fsm::StateMachine::RegisterObject(const fsm::StateMachine::objkey_t& key,
-				       const std::shared_ptr<T>& obj)
+				       const T& obj)
 {
   _stored_objects[key] = objptr(new TObjectHolder<T>(obj));
 }
 				      
 template<class T> inline 
 void fsm::StateMachine::RegisterObject(const fsm::StateMachine::objkey_t& key,
-				       T* obj)
+				       T&& obj)
 {
   _stored_objects[key] = objptr(new TObjectHolder<T>(obj));
 }
-				      
-template<class T> inline const std::shared_ptr<T>& 
-fsm::StateMachine::GetObject(const fsm::StateMachine::objkey_t& key, 
-			     bool typecheck) const
+
+template<class T> inline 
+const T& fsm::StateMachine::GetObject(const fsm::StateMachine::objkey_t& key, 
+				      bool typecheck) const
 {
   auto it = _stored_objects.find(key);
-  if(it == _stored_objects.end()) //couldn't find it
-    return nullptr;
-  if(typecheck && dynamic_cast<TObjectHolder<T>*>(it->second.get()) == nullptr){
-    //object is the wrong type
-    return nullptr;
+  if(it == _stored_objects.end()){//couldn't find it
+    std::stringstream err;
+    err<<"No object registered with key "<<key;
+    throw std::invalid_argument(err.str());
   }
-  return static_cast<TObjectHolder<T>*>(it->second.get())->ptr;
+  if(typecheck && !dynamic_cast<const TObjectHolder<T>*>(it->second.get())){
+    //object is the wrong type
+    std::stringstream err;
+    err<<"Object registered with key "<<key<<" is not of requested type "
+       <<typeid(T).name();
+    throw std::invalid_argument(err.str());
+  }
+  return static_cast<const TObjectHolder<T>*>(it->second.get())->obj;
+}
+
+template<class T> inline 
+T& fsm::StateMachine::GetObject(const fsm::StateMachine::objkey_t& key, 
+			       bool typecheck)
+{
+  //call the const version
+  const StateMachine* me = this;
+  return const_cast<T&>(me->GetObject<T>(key, typecheck));
 }
 
 template<class T> inline 
