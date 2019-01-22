@@ -69,13 +69,13 @@ int main(int argc, char** argv)
   StateMachine sm;
   sm.RegisterState<Active>("Active");
   sm.RegisterState<InActive>("InActive");
-  sm.RegisterEventHandler(POLL, &Active::poll, GetStateID<Active>());
-  sm.RegisterEventHandler(POLL, &InActive::poll, GetStateID<InActive>());
-  sm.RegisterEventHandler(ACTIVATE, &InActive::activate, GetStateID<InActive>());
-  sm.RegisterEventHandler(DEACTIVATE, &Active::deactivate, GetStateID<Active>());
-  sm.RegisterEventHandler(BREAK, &InActive::Break, GetStateID<InActive>());
-  sm.RegisterEventHandler(STOREMSG, &Active::storemsg, GetStateID<Active>());
-  sm.RegisterEventHandler(STOREMSG, &InActive::storemsg, GetStateID<InActive>());
+  sm.RegisterEventHandler<Active>(POLL, &Active::poll);
+  sm.RegisterEventHandler<InActive>(POLL, &InActive::poll);
+  sm.RegisterEventHandler<InActive>(ACTIVATE, &InActive::activate);
+  sm.RegisterEventHandler<Active>(DEACTIVATE, &Active::deactivate);
+  sm.RegisterEventHandler<InActive>(BREAK, &InActive::Break);
+  sm.RegisterEventHandler<Active>(STOREMSG, &Active::storemsg);
+  sm.RegisterEventHandler<InActive>(STOREMSG, &InActive::storemsg);
   sm.RegisterEventHandler(PRINTMSG, printmsg);
   
   std::cout<<"simple.cc: Starting state machine..."<<std::endl;

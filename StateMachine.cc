@@ -22,58 +22,54 @@ StateMachine::~StateMachine()
 
 status_t StateMachine::Handle(const Message& msg)
 {
-
-  status = STATUS_OK;
-  if(!_current_state){
-    return ProduceError(CURRENT_STATE_UNDEFINED,
-			"Current state is undefined");
-  }
-  
-  stateid_t currentid = _current_state->GetID();
-  stateid_t nextid = currentid;
-  //see if the state has a response for this event
-  if(!_statefactory.count(currentid)){
-    std::cerr<<"Current state is "<<currentid<<"; known states:\n";
-    for(auto& it : _statefactory){
-      std::cerr<<it.first<<std::endl;
-    }
-    std::cerr<<"Is default err handler ? "<<dynamic_cast<DefaultErrorHandler*>(_current_state)<<std::endl;
-    abort();
-  }
-  auto* handlers = &(_statefactory[currentid]->event_handlers);
-  auto it = handlers->find(msg.event);
-  if(it == handlers->end()){
-    //see if there is a global handler registered
-    handlers = &_globalhandlers;
-    it = handlers->find(msg.event);
-  }
-  if(it != handlers->end()){
-    //we found an appropriate handler
-    nextid = (it->second)(_current_state, msg);
+  status = STATUS_OK; // do we really want to do this?
+  stateid_t currentid = GetCurrentStateID();
+  auto it = _eventhandlers.find(msg.event);
+  if(it == _eventhandlers.end()){
+    //todo: do we want to cause an error if we don't have a handler?
   }
   else{
-    //TODO: optionally have error if we don't know how to handle this event
+    for(auto& seqhandler : it->second){
+      statehandler& sh = seqhandler.second;
+      //make sure this handler is referencing this state
+      if(sh.state != nullstate && sh.state != currentid)
+	continue;
+      //call the callback
+      stateid_t nextid = (sh.handler)(_current_state.get(), msg);
+      //do we need to transition?
+      if(nextid != nullstate && nextid != currentid){
+	Transition(nextid);
+	currentid = GetCurrentStateID();
+	//todo: handle errors generated during transition
+      }
+      //is this an override sequence?
+      if(seqhandler.first < 0)
+	break;
+    }
   }
-  
-  return Transition(nextid); 
+  return status;
 }
 
-status_t StateMachine::Transition(stateid_t nextid)
+
+status_t StateMachine::Transition(stateid_t nextid, bool checkfirst)
 {
-  stateid_t currentid = GetCurrentStateID();
-  if( nextid != currentid && nextid != nullstate ){
-    if(!_statefactory.count(nextid)){
-      ProduceError(UNKNOWN_STATE_REQUESTED,
-		   "Request for transition to unknown state");
-      //transition to some error state now
-      //TODO: allow user to override
-      nextid = GetStateID<DefaultErrorHandler>();
-    }
-    //make sure the current state's exit gets called first
-    delete _current_state;
-    //now instantiate the new state
-    _current_state = _statefactory[nextid]->enter(this);
+  if(checkfirst){
+    stateid_t currentid = GetCurrentStateID();
+    if(nextid == currentid || nextid == nullstate) //nothing to do
+      return status; 
   }
+  if(!_statefactory.count(nextid)){
+    ProduceError(UNKNOWN_STATE_REQUESTED,
+		 "Request for transition to unknown state");
+    //transition to some error state now
+    //TODO: allow user to override
+    nextid = GetStateID<DefaultErrorHandler>();
+  }
+  //make sure the current state's exit gets called first
+  _current_state.reset(nullptr);
+  //now instantiate the new state
+  _current_state.reset(_statefactory[nextid]->enter(this));
+  
   return status;
 }
 
@@ -89,22 +85,39 @@ status_t StateMachine::ProduceError(status_t code, const std::string& msg)
   return status;
 }
 
-int StateMachine::RemoveEventHandler(const event_t& evt, const stateid_t& st)
+
+int StateMachine::RemoveEventHandler(const event_t& evt, int sequence,
+				     const stateid_t& st)
 {
-  bool found = false;
-  if(st == nullstate)
-    found = _globalhandlers.erase(evt);
+  int nfound = 0;
+  auto matchrange = _eventhandlers[evt].equal_range(sequence);
+  for(auto it = matchrange.first; it != matchrange.second; ++it){
+    statehandler& sh = it->second;
+    if(sh.state == st) {
+      _eventhandlers[evt].erase(it);
+      ++nfound;
+    }
+  }
+  return nfound;
+  if(nfound == 0){
+    std::cerr<<"Warning in RemoveEventHandler; no handler registered for \n"
+	     <<"event "<<evt<<" sequence "<<sequence
+	     <<" and state "<<st<<std::endl;
+  }
+  return nfound;
+}
+
+int StateMachine::RemoveAllHandlers(const event_t& evt)
+{
+  int nfound = 0;
+  if(evt == ""){
+    nfound = _eventhandlers.size();
+    _eventhandlers.clear();
+  }
   else{
-    auto factory = _statefactory.find(st);
-    if(factory != _statefactory.end())
-      found = (factory->second)->event_handlers.erase(evt);
+    nfound = _eventhandlers.erase(evt);
   }
-  if(!found){
-    std::cerr<<"Error in RemoveEventHandler; no handler registered for \n"
-	     <<"event "<<evt<<" and state "<<st<<std::endl;
-    return 1;
-  }
-  return 0;
+  return nfound;
 }
 
 StateMachine::DefaultErrorHandler::DefaultErrorHandler(StateMachine* sm) : 

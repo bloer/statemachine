@@ -25,6 +25,13 @@ namespace fsm{
       UNKNOWN_STATE_REQUESTED = -2,
     };
 
+    enum SEQUENCE {
+      SEQ_FIRST    = 0,
+      SEQ_DEFAULT  = 50,
+      SEQ_LAST     = 100,
+      SEQ_OVERRIDE = -1,
+    };
+
     //some useful utility states
     class DefaultErrorHandler : public VState{
     public:
@@ -47,7 +54,7 @@ namespace fsm{
     void ResetStatus() { status = STATUS_OK; status_msg=""; }
     
     ///Get the current state
-    const VState* GetCurrentState() const { return _current_state; }
+    const VState* GetCurrentState() const { return _current_state.get(); }
     
     ///Get the ID of the current state
     stateid_t GetCurrentStateID() const 
@@ -73,26 +80,61 @@ namespace fsm{
     status_t Handle(const event_t& event){ return Handle(Message(event)); }
   
     ///register a state to handle events
-    template<class T> void RegisterState(const std::string& name){
+    template<class T> void RegisterState(std::string name="",
+					 bool override=false){
       static const bool isvstate = std::is_base_of<VState, T>::value;
-      _statefactory[GetStateID<T>()] = 
-	std::unique_ptr<VStateFactory>(new StateFactory<T,isvstate>(name));
+      if(override || _statefactory.count(GetStateID<T>()) == 0){
+	if(name.empty()) 
+	  name = GetStateID<T>().name();
+	_statefactory[GetStateID<T>()] = 
+	  std::unique_ptr<VStateFactory>(new StateFactory<T,isvstate>(name));
+      }
     }  
 
-    ///register an event callback for a given state. can be mem function
-    template<class T> int RegisterEventHandler(const event_t& evt, 
-					       T handler,
-					       const stateid_t& state=nullstate)
+    /** Register a callback function when an event is received.
+	If `state` is given, it only fires if the state machine is in that state
+	@param evt      The event type to handle
+	@param handler  The function callback. Can be any of several types;
+	                see EventHandlers.hh for call signatures
+	@param sequence If multiple callbacks are registered for the same event,
+	                sequence determines the order in which they fire. 
+			Ordinarily in the range 0-100, lower numbers fire first.
+			Order for multiple callbacks with the same sequence is 
+			undefined.  Special: if any callback has a sequence 
+			<0, it is considered an override, and no other callbacks
+			will fire. 
+	@param state    Optional ID of the state to associate callback to. If
+	                `nullstate` (default), will fire in any state
+	---
+	@returns an integer with 0 indicating success
+    */	
+    template<class Handler> 
+    int RegisterEventHandler(const event_t& evt, Handler handler,
+			     int sequence=SEQ_DEFAULT,
+			     const stateid_t& state=nullstate)
     {
-      if(state == nullstate)
-	_globalhandlers[evt] = eh::MakeEventHandler(handler);
-      else
-	_statefactory[state]->event_handlers[evt]=eh::MakeEventHandler(handler);
+      _eventhandlers[evt].insert({sequence, statehandler{state, 
+	      eh::MakeEventHandler(handler)} });
       return 0;
     }
 
+    ///Alternate signature to register handler, giving state as template param
+    template<class State, class Handler> 
+    int RegisterEventHandler(const event_t& evt, Handler handler, 
+			     int sequence=SEQ_DEFAULT)
+    {
+      //allow silently registering the state too
+      RegisterState<State>();
+      return RegisterEventHandler(evt, handler, sequence, GetStateID<State>());
+      
+    }
+    
     ///Remove a previously registered event handler
-    int RemoveEventHandler(const event_t& evt, const stateid_t& st=nullstate);
+    int RemoveEventHandler(const event_t& evt, int sequence,
+			   const stateid_t& st=nullstate);
+    
+    ///Remove all event handlers for the given event, or all totally
+    int RemoveAllHandlers(const event_t& evt="");
 						   
     ///start the machine running
     virtual status_t Start(const stateid_t& initialState);
@@ -122,14 +164,16 @@ namespace fsm{
   protected:
     status_t status;
     std::string status_msg;
-    VState* _current_state = nullptr;
+    std::unique_ptr<VState> _current_state = nullptr;
     stateid_t _previous_state;
     status_t ProduceError(status_t code, const std::string& message);
-  
+ 
     std::map<stateid_t, std::unique_ptr<VStateFactory> > _statefactory;
-    std::unordered_map<event_t, EventHandler> _globalhandlers;
+    struct statehandler{stateid_t state; EventHandler handler;};
+    using evhsequence = std::multimap<int, statehandler>;
+    std::unordered_map<event_t, evhsequence> _eventhandlers;
       
-    virtual status_t Transition(stateid_t nextid);
+    virtual status_t Transition(stateid_t nextid, bool checkfirst=false);
 
     struct VObjectHolder { virtual ~VObjectHolder(){} };
     template<class T> struct TObjectHolder : public VObjectHolder {
