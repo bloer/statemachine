@@ -1,3 +1,6 @@
+#ifndef MESSAGE_h
+#define MESSAGE_h
+
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -11,49 +14,73 @@ namespace fsm{
     ///Constructor with event label only
     Message(const event_t& evt) : event(evt) {}
     
-    ///Constructor with size of owned data
-    Message(const event_t& evt, size_t bufsize) : 
-      event(evt), _datasize(bufsize), _owned_data(bufsize){}
+    ///Constructor with a single string arg
+    Message(const event_t& evt, const std::string& arg1)
+    { AddArg(arg1); }
     
-    ///Constructor pointing to a remote block of data
-    Message(const event_t& evt, void* data, size_t datasize, bool copy=false) :
-      event(evt), _data(data), _datasize(datasize){
-      if(copy){
-	_owned_data.resize(datasize);
-	std::copy_n((char*)data, datasize, _owned_data.begin());
-	_data = nullptr;
-      }
-    }
-
-    ///special constructor to copy a string
-    Message(const event_t& evt, const std::string& msg) : 
-      event(evt), _datasize(msg.size()+1), _owned_data(msg.size()+1){
-      std::copy(msg.begin(), msg.end(), _owned_data.begin());
-    }
+    ///Constructor with data
+    Message(const event_t& evt, void* data, size_t datasize)
+    { AddDataArg(data, datasize); }
     
     ///event type identifier
     event_t event;
     
-    ///pointer to the data location
-    void* GetData()
-    { return _owned_data.empty() ? _data : _owned_data.data(); }
+    ///Get all of the arguments
+    const std::vector<std::string>& GetArgs() const { return _args; }
+    
+    ///convert the message to printable format
+    const std::string& ToString() const; 
 
-    ///const access to the data pointer
-    const void* GetData() const 
-    { return _owned_data.empty() ? _data : _owned_data.data(); }
+    ///build the message by ostream
+    template<class T> Message& operator<<(const T& t)
+    { _ss<<t return *this; }
+    
+    ///Use Message::SEP to end the argument
+    enum SEP_ { SEP };
+    Message& operator<<(SEP_){ AddArg(_ss.str()); _ss.str(""); return *this; }
+    
+    ///Add an argument
+    void AddArg(const std::string& s){ _args.push_back(s); }
+    void AddArg(std::string&& s){ _argsu.push_back(std::move(s)); }
 
-    ///get the size of pointed data
-    size_t GetDataSize() const { return _datasize; }
+    ///add some binary data
+    void AddDataArg(void* data, size_t size)
+    { _args.push_back(std::string((char*)data, size)); }
+    
+    
+    ///Set a named parameter
+    void SetParameter(const std::string& key, const std::string& val)
+    { _params[key] = val; }
+    
+    ///set all parameters
+    void SetParameters(const std::map<std::string, std::string>& par)
+    { _params = par; }
+    void SetParameters(std::map<std::string, std::string>&& par)
+    { _params = std::move(par); }
+    
+    ///See if we have a parameter
+    bool HasParameter(cnst std::string& key) const { return _params.count(key);}
 
-    ///format the data as a string. May not be a valid c-string though!
-    const char* GetDataString() const 
-    { return _data ? (const char*)GetData() : ""; }
-
+    ///Get a parameter
+    const std::string& GetParameter(const std::string& key) const 
+    {
+      const auto iter = _params.find(key);
+      if(iter == _params.end()){
+        static const std::string s;
+        return s;
+      }
+      return iter->second; 
+    }
+    
   private:
-    void* _data = nullptr;
-    size_t _datasize = 0;
-    std::vector<char> _owned_data;
+    std::vector<std::string> _args;
+    std::map<std::string> _params;
+    std::stringstream _ss;
   };
 
 };
 
+inline std::ostream& operator<<(std::ostream& os, const Message& msg)
+{ return os << msg.ToString(); }
+
+#endif
