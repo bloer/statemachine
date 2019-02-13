@@ -11,7 +11,7 @@ namespace fsm{
   class Message{
   public:
     ///Constructor with event label only
-    Message(const event_t& evt = event_t()) : event(evt) {}
+    Message(const event_t& evt) : event(evt) {}
     
     ///Constructor with a single string arg
     Message(const event_t& evt, const std::string& arg1)
@@ -78,6 +78,7 @@ namespace fsm{
 
   public:
     Message& operator=(const Message& right){
+      event = right.event;
       _args = right._args;
       _params = right._params;
       _ss.str(right._ss.str());

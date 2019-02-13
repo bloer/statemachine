@@ -29,6 +29,7 @@ status_t StateMachine::Handle(const Message& msg)
   return status;
 }
 
+
 status_t StateMachine::Handle(Message&& msg)
 {
   _msgq.push(std::move(msg));
