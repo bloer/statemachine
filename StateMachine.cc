@@ -1,12 +1,15 @@
 #include "StateMachine.hh"
 #include <iostream>
 #include <cassert>
+#include <thread>
+#include <chrono>
 
 using namespace fsm;
 
 //static initializers
 const stateid_t nullstate = GetStateID(nullptr); //this *should* be in State.cc
 const event_t StateMachine::ERROR_DEFAULT = "fsm::StateMachine::ERROR_DEFAULT";
+const event_t StateMachine::TIMEOUT = "fsm::StateMachine::TIMEOUT";
 
 //constructor
 StateMachine::StateMachine() : 
@@ -22,9 +25,22 @@ StateMachine::~StateMachine()
 
 status_t StateMachine::Handle(const Message& msg)
 {
+  _msgq.push(msg); //should we wait for a return value??
+  return status;
+}
+
+status_t StateMachine::Handle(Message&& msg)
+{
+  _msgq.push(std::move(msg));
+  return status;
+}
+
+status_t StateMachine::ProcessMessage(const Message& msg)
+{
   status = STATUS_OK; // do we really want to do this?
   stateid_t currentid = GetCurrentStateID();
   auto it = _eventhandlers.find(msg.event);
+  _stop_processing = false;
   if(it == _eventhandlers.end()){
     //todo: do we want to cause an error if we don't have a handler?
   }
@@ -43,7 +59,7 @@ status_t StateMachine::Handle(const Message& msg)
 	//todo: handle errors generated during transition
       }
       //is this an override sequence?
-      if(seqhandler.first < 0)
+      if(seqhandler.first < 0 || _stop_processing)
 	break;
     }
   }
@@ -73,9 +89,13 @@ status_t StateMachine::Transition(stateid_t nextid, bool checkfirst)
   return status;
 }
 
-status_t StateMachine::Start(const stateid_t& initialstate)
+status_t StateMachine::Start(const stateid_t& initialstate, long mstimeout)
 {
-  return Transition(initialstate);
+  if(mstimeout >= 0) SetTimeout(mstimeout);
+  status = Transition(initialstate);
+  if(status != STATUS_OK)
+    return status;
+  return MainLoop();
 }
 
 status_t StateMachine::ProduceError(status_t code, const std::string& msg)
@@ -125,4 +145,26 @@ StateMachine::DefaultErrorHandler::DefaultErrorHandler(StateMachine* sm) :
 {
   std::cerr<<"State machine has encountered error "<<sm->GetStatus()<<":\n"
 	   <<sm->GetStatusMsg()<<'\n';
+}
+
+fsm::status_t StateMachine::MainLoop()
+{
+  //make sure we can get into the first transition
+  _running = true;
+  while(_running){
+    //are there any messages in the queue?
+    while(_msgq.size() && _running/*allow Stop with msgs in queue*/){
+      Message& m = _msgq.front(); //need to hold onto lock longer this way...
+      ProcessMessage(m);
+      _msgq.pop();
+    }
+    //if we get here, queue is empty, so sleep
+    if(_running){
+      std::this_thread::sleep_for(std::chrono::milliseconds(_mstimeout));
+      Handle(TIMEOUT);
+    }
+  }
+  //someone has called Stop. Make sure we exit the active state
+  _current_state.reset(nullptr);
+  return status;
 }

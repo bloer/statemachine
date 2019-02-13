@@ -1,6 +1,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <queue>
 #include <unordered_map>
 #include <typeinfo>
 #include <typeindex>
@@ -19,6 +20,7 @@ namespace fsm{
   class StateMachine{
   public:
     static const event_t ERROR_DEFAULT;
+    static const event_t TIMEOUT;
   
   public:
     enum STATUSCODE {
@@ -77,9 +79,13 @@ namespace fsm{
   
     ///handle an incoming message (event)
     virtual status_t Handle(const Message& msg);
+    virtual status_t Handle(Message&& msg);
 
     ///explicitly handle a bare event
     status_t Handle(const event_t& event){ return Handle(Message(event)); }
+    
+    ///don't process any more handlers for this event
+    void StopProcessingCurrentEvent(){ _stop_processing = true; }
   
     ///register a state to handle events
     template<class T> void RegisterState(std::string name="",
@@ -138,11 +144,17 @@ namespace fsm{
     ///Remove all event handlers for the given event, or all totally
     int RemoveAllHandlers(const event_t& evt="");
 						   
+    ///Set the main loop timeout time
+    void SetTimeout(long mstimeout) { _mstimeout = mstimeout; }
+    
+    ///Get the main loop timeout interval
+    long GetTimeout() const { return _mstimeout; }
+
     ///start the machine running
-    virtual status_t Start(const stateid_t& initialState);
+    virtual status_t Start(const stateid_t& initialState, long mstimeout=-1);
 
     ///stop running (no-op for base class)
-    virtual status_t Stop(){}
+    virtual status_t Stop(){ _running = false; return status; } //should join
 
     using objkey_t = std::string;
     
@@ -170,6 +182,9 @@ namespace fsm{
   protected:
     status_t status;
     std::string status_msg;
+    long _mstimeout = 100;
+    bool _running = false;
+    bool _stop_processing = false;
     std::unique_ptr<VState> _current_state = nullptr;
     stateid_t _previous_state;
     status_t ProduceError(status_t code, const std::string& message);
@@ -179,7 +194,9 @@ namespace fsm{
     using evhsequence = std::multimap<int, statehandler>;
     std::unordered_map<event_t, evhsequence> _eventhandlers;
       
+    virtual status_t ProcessMessage(const Message& msg);
     virtual status_t Transition(stateid_t nextid, bool checkfirst=false);
+    virtual status_t MainLoop();
 
     struct VObjectHolder { virtual ~VObjectHolder(){} };
     template<class T> struct TObjectHolder : public VObjectHolder {
@@ -192,6 +209,7 @@ namespace fsm{
     using objmap = std::unordered_map<objkey_t, objptr>;
     objmap _stored_objects;
     
+    std::queue<Message> _msgq;
   };
 
 }
