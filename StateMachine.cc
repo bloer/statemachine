@@ -2,6 +2,8 @@
 #include <iostream>
 #include <cassert>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <chrono>
 
 using namespace fsm;
@@ -10,6 +12,8 @@ using namespace fsm;
 const stateid_t nullstate = GetStateID(nullptr); //this *should* be in State.cc
 const event_t StateMachine::ERROR_DEFAULT = "fsm::StateMachine::ERROR_DEFAULT";
 const event_t StateMachine::TIMEOUT = "fsm::StateMachine::TIMEOUT";
+const event_t StateMachine::STOP = "fsm::StateMachine::STOP";
+
 
 //constructor
 StateMachine::StateMachine() : 
@@ -25,14 +29,19 @@ StateMachine::~StateMachine()
 
 status_t StateMachine::Handle(const Message& msg)
 {
-  _msgq.push(msg); //should we wait for a return value??
+  std::lock_guard<std::mutex> lock(_msgq_mutex);
+  _msgq.push(msg); 
+  _msg_avail.notify_one();
+  //should we wait for a return value??
   return status;
 }
 
 
 status_t StateMachine::Handle(Message&& msg)
 {
+  std::lock_guard<std::mutex> lock(_msgq_mutex);
   _msgq.push(std::move(msg));
+  _msg_avail.notify_one();
   return status;
 }
 
@@ -90,13 +99,31 @@ status_t StateMachine::Transition(stateid_t nextid, bool checkfirst)
   return status;
 }
 
-status_t StateMachine::Start(const stateid_t& initialstate, long mstimeout)
+status_t StateMachine::Start(const stateid_t& initialstate, long mstimeout,
+			     bool block)
 {
+  //make sure we're in sane state
+  if(_main_loop.joinable()){
+    std::cerr<<"StateMachine::Start called when already running; ignoring!\n";
+    return status;
+  }
   if(mstimeout >= 0) SetTimeout(mstimeout);
   status = Transition(initialstate);
   if(status != STATUS_OK)
     return status;
-  return MainLoop();
+  if(block)
+    MainLoop();
+  else
+    _main_loop = std::thread(&StateMachine::MainLoop, this);
+  return status;
+}
+
+status_t StateMachine::Stop(bool wait)
+{
+  Handle(STOP);
+  if(wait && _main_loop.joinable())
+    _main_loop.join();
+  return status;
 }
 
 status_t StateMachine::ProduceError(status_t code, const std::string& msg)
@@ -151,18 +178,28 @@ StateMachine::DefaultErrorHandler::DefaultErrorHandler(StateMachine* sm) :
 fsm::status_t StateMachine::MainLoop()
 {
   //make sure we can get into the first transition
-  _running = true;
-  while(_running){
+  bool running = true;
+  while(running){
     //are there any messages in the queue?
-    while(_msgq.size() && _running/*allow Stop with msgs in queue*/){
-      Message& m = _msgq.front(); //need to hold onto lock longer this way...
-      ProcessMessage(m);
-      _msgq.pop();
+    std::unique_lock<std::mutex> lock(_msgq_mutex);
+    if(_msgq.empty()){
+      //nothing in queue, wait for a new message
+      if(_msg_avail.wait_for(lock, std::chrono::milliseconds(_mstimeout))  == 
+	 std::cv_status::timeout){
+	//no message received, so issue a timeout event
+	_msgq.emplace(TIMEOUT); //should we just call Process here??
+      }
     }
-    //if we get here, queue is empty, so sleep
-    if(_running){
-      std::this_thread::sleep_for(std::chrono::milliseconds(_mstimeout));
-      Handle(TIMEOUT);
+    while(_msgq.size()){
+      Message m(std::move(_msgq.front()));
+      _msgq.pop();
+      lock.unlock(); //unlock after we've processed the message
+      ProcessMessage(m);
+      if(m.event == STOP){ //we're done
+	running = false;
+	break;
+      }
+      lock.lock(); //need to relock to evaluate while condition
     }
   }
   //someone has called Stop. Make sure we exit the active state

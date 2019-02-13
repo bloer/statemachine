@@ -77,6 +77,7 @@ namespace fsm{
     std::stringstream _ss;
 
   public:
+    //default copy-ctors not possible with sstreams
     Message& operator=(const Message& right){
       event = right.event;
       _args = right._args;
@@ -88,6 +89,10 @@ namespace fsm{
     Message(const Message& right){
       *this = right;
     }
+
+    //explicitly set move constructors
+    Message(Message&&) = default;
+    Message& operator=(Message&&) = default;
   };
 };
 

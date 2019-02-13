@@ -8,6 +8,9 @@
 #include <memory>
 #include <stdexcept>
 #include <sstream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include "Message.hh"
 #include "EventHandler.hh"
@@ -21,6 +24,7 @@ namespace fsm{
   public:
     static const event_t ERROR_DEFAULT;
     static const event_t TIMEOUT;
+    static const event_t STOP;
   
   public:
     enum STATUSCODE {
@@ -151,11 +155,12 @@ namespace fsm{
     long GetTimeout() const { return _mstimeout; }
 
     ///start the machine running
-    virtual status_t Start(const stateid_t& initialState, long mstimeout=-1);
+    virtual status_t Start(const stateid_t& initialState, long mstimeout=-1,
+			   bool block=false);
 
-    ///stop running (no-op for base class)
-    virtual status_t Stop(){ _running = false; return status; } //should join
-
+    ///stop running (no-op for base class). wait for thread to join if wait=true
+    virtual status_t Stop(bool wait=false);
+  
     using objkey_t = std::string;
     
     ///Store an object with longer-than-state duration
@@ -183,7 +188,6 @@ namespace fsm{
     status_t status;
     std::string status_msg;
     long _mstimeout = 100;
-    bool _running = false;
     bool _stop_processing = false;
     std::unique_ptr<VState> _current_state = nullptr;
     stateid_t _previous_state;
@@ -210,6 +214,9 @@ namespace fsm{
     objmap _stored_objects;
     
     std::queue<Message> _msgq;
+    std::mutex _msgq_mutex;
+    std::condition_variable _msg_avail;
+    std::thread _main_loop;
   };
 
 }
